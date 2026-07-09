@@ -25,8 +25,48 @@ REQUIRED_COLUMNS = [
     "Jul-26", "Aug-26", "Sep-26", "Oct-26", "Nov-26", "Dec-26",
     "2026B",
 ]
+
+DESTINATION_PROJECT = "cmg-uber-global"
+DESTINATION_DATASET = "Budget_2026"
+DESTINATION_TABLENAME = "BUDGET_TV_RADIO"
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _bq_safe_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy of `df` with column names valid for BigQuery.
+
+    BigQuery column names must match `[A-Za-z_][A-Za-z0-9_]*`, so replace
+    hyphens with underscores and prefix names that start with a digit.
+    """
+    renamed = {}
+    for col in df.columns:
+        name = str(col).replace("-", "_").replace(" ", "_")
+        if name and name[0].isdigit():
+            name = f"Y_{name}"
+        renamed[col] = name
+    return df.rename(columns=renamed)
+
+
+def load_to_bigquery(df: pd.DataFrame) -> str:
+    """Load `df` into the destination BigQuery table (truncate + reload)."""
+    client = bigquery.Client(project=DESTINATION_PROJECT)
+    table_id = f"{DESTINATION_PROJECT}.{DESTINATION_DATASET}.{DESTINATION_TABLENAME}"
+
+    job_config = bigquery.LoadJobConfig(
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        autodetect=True,
+    )
+
+    job = client.load_table_from_dataframe(
+        _bq_safe_columns(df), table_id, job_config=job_config
+    )
+    job.result()
+
+    table = client.get_table(table_id)
+    logger.info("Loaded %d rows into %s", table.num_rows, table_id)
+    return table_id
 
 
 def _json_safe(value):
@@ -128,6 +168,7 @@ def budget_handler(request):
     anchor = payload.get("anchor", "Market")
 
     df = read_budget_from_gcs(bucket_name, blob_name, sheet_name, anchor)
+    load_to_bigquery(df)
     return df.to_json(orient="records"), 200, {"Content-Type": "application/json"}
  
  
@@ -142,8 +183,9 @@ def run_main(request):
             anchor="Market",
         )
         
-        print(f"Shape: {df.shape}")
-        print(df.to_string(index=False))       
+        logger.info("Shape: %s", df.shape)
+        logger.info("Row/column counts:\n%s", df.count())
+        logger.info("DataFrame:\n%s", df.to_string(index=False))
 
         return _json_safe(
             {
