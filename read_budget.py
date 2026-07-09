@@ -94,8 +94,8 @@ def budget_handler(request):
     Returns the parsed DataFrame as JSON records.
     """
     payload = request.get_json(silent=True) or {}
-    bucket_name = payload.get("bucket", "us_central")
-    blob_name = payload.get("blob", "Budget/Incoming/Budget_File.xlsx")
+    bucket_name = payload.get("bucket", "us-central")
+    blob_name = payload.get("blob", "Budget/Incoming/Buget_File.xlsx")
     sheet_name = payload.get("sheet_name", "Master Summary Radio - Station")
     anchor = payload.get("anchor", "Market")
 
@@ -105,8 +105,8 @@ def budget_handler(request):
 
 if __name__ == "__main__":
     df = read_budget_from_gcs(
-        bucket_name="us_central",
-        blob_name="Budget/Incoming/Budget_File.xlsx",
+        bucket_name="us-central",
+        blob_name="Budget/Incoming/Buget_File.xlsx",
         sheet_name="Master Summary Radio - Station",
         anchor="Market",
     )
