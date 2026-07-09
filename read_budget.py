@@ -5,6 +5,13 @@ table from the "Master Summary Radio - Station" sheet by locating the
 Designed to run as a Google Cloud Function: the file is loaded from a GCS
 bucket into memory rather than from a local path.
 """
+import functions_framework
+import logging
+from google.cloud import bigquery
+from google.auth import default
+from google.auth.impersonated_credentials import Credentials
+from datetime import datetime, timezone
+
 
 import datetime as _dt
 import io
@@ -18,9 +25,30 @@ REQUIRED_COLUMNS = [
     "Jul-26", "Aug-26", "Sep-26", "Oct-26", "Nov-26", "Dec-26",
     "2026B",
 ]
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def download_blob_to_memory(bucket_name: str, blob_name: str) -> io.BytesIO:
+def _json_safe(value):
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if hasattr(value, "item"):
+        return _json_safe(value.item())
+    return str(value)
+
+def download_blob_to_memory(bucket_name: str, blob_name: str):
     """Download `blob_name` from GCS bucket `bucket_name` into an in-memory
     BytesIO buffer suitable for `pd.read_excel`.
     """
@@ -33,7 +61,7 @@ def download_blob_to_memory(bucket_name: str, blob_name: str) -> io.BytesIO:
 
 def read_market_table(file_obj,
                       sheet_name: str,
-                      anchor: str) -> pd.DataFrame:
+                      anchor: str):
     """Load the sheet from a file path or binary file-like object, find the
     cell containing `anchor` (e.g. "Market"), and return the data block
     starting at that cell as a DataFrame with the anchor row as headers.
@@ -81,7 +109,7 @@ def read_market_table(file_obj,
 def read_budget_from_gcs(bucket_name: str,
                          blob_name: str,
                          sheet_name: str,
-                         anchor: str) -> pd.DataFrame:
+                         anchor: str):
     """Download the budget xlsx from GCS and return the parsed DataFrame."""
     buffer = download_blob_to_memory(bucket_name, blob_name)
     return read_market_table(buffer, sheet_name=sheet_name, anchor=anchor)
@@ -94,21 +122,41 @@ def budget_handler(request):
     Returns the parsed DataFrame as JSON records.
     """
     payload = request.get_json(silent=True) or {}
-    bucket_name = payload.get("bucket", "us-central")
-    blob_name = payload.get("blob", "Budget/Incoming/Buget_File.xlsx")
+    bucket_name = payload.get("bucket", "cmg-uber-global")
+    blob_name = payload.get("blob", "Budget/Incoming/Budget_File.xlsx")
     sheet_name = payload.get("sheet_name", "Master Summary Radio - Station")
     anchor = payload.get("anchor", "Market")
 
     df = read_budget_from_gcs(bucket_name, blob_name, sheet_name, anchor)
     return df.to_json(orient="records"), 200, {"Content-Type": "application/json"}
+ 
+ 
+@functions_framework.http
+def run_main(request):
 
+    try:
+        df = read_budget_from_gcs(
+            bucket_name="cmg-uber-global",
+            blob_name="Budget/Incoming/Budget_File.xlsx",
+            sheet_name="Master Summary Radio - Station",
+            anchor="Market",
+        )
+        
+        print(f"Shape: {df.shape}")
+        print(df.to_string(index=False))       
 
-if __name__ == "__main__":
-    df = read_budget_from_gcs(
-        bucket_name="us-central",
-        blob_name="Budget/Incoming/Buget_File.xlsx",
-        sheet_name="Master Summary Radio - Station",
-        anchor="Market",
-    )
-    print(f"Shape: {df.shape}")
-    print(df.to_string(index=False))
+        return _json_safe(
+            {
+                "status": "success",
+                "message": "Budget File loaded Successfully",
+            }
+        )
+
+    except Exception as e:
+        logger.exception("Budget file load failed")
+        return _json_safe(
+            {
+                "status": "error",
+                "message": str(e),
+            }
+        )
