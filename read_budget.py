@@ -1,10 +1,17 @@
 """Read the Budget Excel workbook and load it into BigQuery."""
 
+import logging
 import os
 from datetime import datetime
 
 import pandas as pd
 from google.cloud import bigquery
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 SOURCE_FILE = os.environ.get("BUDGET_FILE", "Budget_File.xlsx")
 SHEET_NAME = "Master Summary Radio - Station"
@@ -59,11 +66,11 @@ def load_to_bigquery(df: pd.DataFrame) -> None:
     job.result()
 
     table = client.get_table(table_id)
-    print(f"Loaded {table.num_rows} rows into {table_id}")
+    logger.info("Loaded %d rows into %s", table.num_rows, table_id)
 
 
 if __name__ == "__main__":
     df = read_budget()
-    print(f"Read {len(df)} rows from {SOURCE_FILE!r} / sheet {SHEET_NAME!r}")
-    print(df.head())
+    logger.info("Read %d rows from %r / sheet %r", len(df), SOURCE_FILE, SHEET_NAME)
+    logger.info("DataFrame head:\n%s", df.head())
     load_to_bigquery(df)
