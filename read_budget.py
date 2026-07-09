@@ -73,4 +73,5 @@ if __name__ == "__main__":
     df = read_budget()
     logger.info("Read %d rows from %r / sheet %r", len(df), SOURCE_FILE, SHEET_NAME)
     logger.info("DataFrame head:\n%s", df.head())
+    logger.info("DataFrame count:\n%s", df.count())
     load_to_bigquery(df)
