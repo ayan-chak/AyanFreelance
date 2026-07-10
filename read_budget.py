@@ -152,7 +152,9 @@ def read_budget_from_gcs(bucket_name: str,
                          anchor: str):
     """Download the budget xlsx from GCS and return the parsed DataFrame."""
     buffer = download_blob_to_memory(bucket_name, blob_name)
-    return read_market_table(buffer, sheet_name=sheet_name, anchor=anchor)
+    df = read_market_table(buffer, sheet_name=sheet_name, anchor=anchor)
+    df["loaddate"] = pd.Timestamp.now(tz=timezone.utc)
+    return df
 
 
 def budget_handler(request):
